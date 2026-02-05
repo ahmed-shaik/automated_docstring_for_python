@@ -51,12 +51,13 @@ async def health_check():
 
 
 @app.post("/analyze")
-async def analyze_code(file: UploadFile = File(...)):
+async def analyze_code(file: UploadFile = File(...), require_all_magic_methods: bool = False):
     """
     Analyze Python code from an uploaded file.
 
     Args:
         file: Python file to analyze (.py extension expected)
+        require_all_magic_methods: If True, require docstrings for all magic methods
 
     Returns:
         Dictionary with analysis results
@@ -90,12 +91,13 @@ async def analyze_code(file: UploadFile = File(...)):
         # Log basic file info (no source code for privacy)
         logger.info(
             f"Analyzing file: {file.filename}, "
-            f"Size: {len(source_code)} chars"
+            f"Size: {len(source_code)} chars, "
+            f"Require all magic methods: {require_all_magic_methods}"
         )
 
         # Analyze code
         try:
-            analysis_result = analyze_python_code(source_code)
+            analysis_result = analyze_python_code(source_code, require_all_magic_methods)
         except SyntaxError as e:
             raise HTTPException(
                 status_code=400,
@@ -108,6 +110,7 @@ async def analyze_code(file: UploadFile = File(...)):
             "metadata": {
                 "file_size_bytes": len(content),
                 "lines_of_code": len(source_code.splitlines()),
+                "require_all_magic_methods": require_all_magic_methods
             },
         }
 

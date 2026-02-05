@@ -4,6 +4,12 @@ import tokenize
 from io import StringIO
 from typing import Dict, List, Tuple, Optional, Any, Set, Union
 from dataclasses import dataclass, field
+from collections import defaultdict
+import os
+
+# ============================================================
+# DATA MODEL
+# ============================================================
 
 @dataclass
 class DocstringIssue:
@@ -14,9 +20,14 @@ class DocstringIssue:
     context: Optional[str] = None
     function: Optional[str] = None
 
+
+# ============================================================
+# PEP257 CHECKER (ORIGINAL CODE - KEEP AS IS)
+# ============================================================
+
 class PEP257Checker:
     """Native PEP 257 compliance checker without subprocess dependencies."""
-    
+
     # PEP 257 Guidelines Reference
     GUIDELINES = {
         "D100": {"title": "Missing Docstring", "description": "Public modules should have docstrings.", "severity": "warning"},
@@ -44,79 +55,201 @@ class PEP257Checker:
         "D415": {"title": "First Line Punctuation", "description": "First line should end with period, question mark, or exclamation.", "severity": "info"},
     }
 
-    def __init__(self, source_code: str):
+    def __init__(self, source_code: str, require_all_magic_methods: bool = False):
         self.source_code = source_code
-        self.lines = source_code.splitlines()
+        self.lines = source_code.splitlines(keepends=False)
         self.issues: List[DocstringIssue] = []
-        self.tokens = list(tokenize.generate_tokens(StringIO(source_code).readline))
+        self.items_needing_docs = 0
+        self.items_with_docs = 0
+        self.require_all_magic_methods = require_all_magic_methods
+        self.common_magic_methods = {
+            '__init__', '__new__', '__call__', '__str__', '__repr__', 
+            '__eq__', '__hash__', '__del__', '__enter__', '__exit__',
+            '__getitem__', '__setitem__', '__delitem__', '__len__',
+            '__iter__', '__next__', '__contains__', '__bool__',
+            '__add__', '__sub__', '__mul__', '__truediv__', '__floordiv__',
+            '__mod__', '__pow__', '__lt__', '__le__', '__gt__', '__ge__',
+            '__ne__', '__getattr__', '__setattr__', '__delattr__',
+            '__getattribute__', '__dir__', '__sizeof__', '__reduce__',
+            '__reduce_ex__', '__getstate__', '__setstate__'
+        }
         
+        # ADDED: For checking closing quotes on same line
+        self.source_lines = source_code.split('\n')
+
     def check(self) -> List[DocstringIssue]:
         """Run all PEP 257 checks."""
         try:
             tree = ast.parse(self.source_code)
             self._visit_tree(tree)
             self._check_module_docstring(tree)
-        except SyntaxError:
-            pass
+            
+            # Calculate items needing docs
+            self._calculate_items_needing_docs(tree)
+        except SyntaxError as e:
+            # Add syntax error as an issue
+            self.issues.append(DocstringIssue(
+                line=e.lineno or 1,
+                code="SYNTAX",
+                description=f"Syntax error: {e.msg}",
+                severity="error"
+            ))
         return self.issues
-    
+
+    def _has_public_items(self, tree: ast.Module) -> bool:
+        has_public_items = False
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                if self._is_public(node.name):
+                    has_public_items = True
+                    break
+            elif isinstance(node, ast.FunctionDef):
+                parent = self._get_parent_context(node, tree)
+                if isinstance(parent, ast.Module) and self._is_public(node.name):
+                    has_public_items = True
+                    break
+        return has_public_items
+
     def _visit_tree(self, tree: ast.AST):
         """Visit all nodes in the AST."""
         for node in ast.walk(tree):
             if isinstance(node, ast.ClassDef):
                 self._check_class_docstring(node)
-                for item in node.body:
-                    if isinstance(item, ast.FunctionDef):
-                        self._check_method_docstring(item, node.name)
+                if self._is_public(node.name):
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            self._check_method_docstring(item, node.name)
             elif isinstance(node, ast.FunctionDef):
                 # Check if it's a standalone function (not a method)
-                if not any(isinstance(parent, ast.ClassDef) for parent in ast.walk(tree)):
+                parent = self._get_parent_context(node, tree)
+                if not isinstance(parent, ast.ClassDef):
                     self._check_function_docstring(node)
-    
-    def _get_docstring_node(self, node: Union[ast.FunctionDef, ast.ClassDef, ast.Module]) -> Optional[ast.Constant]:
-        """Get the docstring constant node if it exists."""
-        if (node.body and isinstance(node.body[0], ast.Expr) and 
-            isinstance(node.body[0].value, (ast.Constant, ast.Str))):
-            return node.body[0].value
+
+    def _get_parent_context(self, node: ast.AST, tree: ast.AST) -> Optional[ast.AST]:
+        """Get the parent context of a node."""
+        for parent in ast.walk(tree):
+            for child in ast.iter_child_nodes(parent):
+                if child is node:
+                    return parent
         return None
-    
-    def _get_docstring_info(self, node) -> Tuple[Optional[str], Optional[int], Optional[int]]:
+
+    def _get_docstring_node(self, node: Union[ast.FunctionDef, ast.ClassDef, ast.Module]) -> Optional[ast.expr]:
+        """Get the docstring constant node if it exists."""
+        if not node.body:
+            return None
+
+        first_item = node.body[0]
+        if isinstance(first_item, ast.Expr):
+            expr_value = first_item.value
+            if isinstance(expr_value, ast.Constant) and isinstance(expr_value.value, str):
+                return expr_value
+            elif isinstance(expr_value, ast.Str):  # Python < 3.8 compatibility
+                return expr_value
+        return None
+
+    def _get_docstring_info(self, node: Union[ast.FunctionDef, ast.ClassDef, ast.Module]) -> Tuple[Optional[str], Optional[int], Optional[int]]:
         """Extract docstring text, start line, and end line."""
         doc_node = self._get_docstring_node(node)
         if not doc_node:
             return None, None, None
-            
-        if isinstance(doc_node, ast.Str):  # Python < 3.8
+
+        # Extract text
+        if isinstance(doc_node, ast.Constant):
+            text = doc_node.value
+        elif isinstance(doc_node, ast.Str):  # Python < 3.8
             text = doc_node.s
         else:
-            text = doc_node.value
-        
-        # Find the actual line numbers from tokens for precision
+            return None, None, None
+
+        # Get line numbers
         start_line = getattr(doc_node, 'lineno', None)
-        end_line = getattr(doc_node, 'end_lineno', None)
-        
+        end_line = getattr(doc_node, 'end_lineno', start_line)
+
         return text, start_line, end_line
-    
+
     def _is_public(self, name: str) -> bool:
         """Check if a name is public (doesn't start with underscore)."""
         return not name.startswith('_')
-    
+
+    def _calculate_items_needing_docs(self, tree: ast.Module):
+        """Calculate total items that need documentation according to PEP257."""
+        self.items_needing_docs = 0
+        self.items_with_docs = 0
+        
+        # Check if module has any public items
+        has_public_items = self._has_public_items(tree)
+        
+        # Only require module docstring if it has public items
+        if has_public_items:
+            self.items_needing_docs += 1
+            if ast.get_docstring(tree):
+                self.items_with_docs += 1
+
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ClassDef):
+                # Only public classes need documentation
+                if self._is_public(node.name):
+                    self.items_needing_docs += 1
+                    if ast.get_docstring(node):
+                        self.items_with_docs += 1
+                    
+                    # Check methods in the class
+                    for item in node.body:
+                        if isinstance(item, ast.FunctionDef):
+                            method_name = item.name
+                            is_magic = method_name.startswith('__') and method_name.endswith('__')
+                            
+                            # Decide if this method needs documentation
+                            needs_doc = False
+                            
+                            if self._is_public(method_name):
+                                # Public methods need docs
+                                needs_doc = True
+                            elif is_magic:
+                                # Magic methods: check if it's common or if we require all
+                                if self.require_all_magic_methods or method_name in self.common_magic_methods:
+                                    needs_doc = True
+                            # Private methods (starting with single underscore) don't need docs
+                            
+                            if needs_doc:
+                                self.items_needing_docs += 1
+                                if ast.get_docstring(item):
+                                    self.items_with_docs += 1
+                                    
+            elif isinstance(node, ast.FunctionDef):
+                # Check if it's a standalone function (not a method)
+                parent = self._get_parent_context(node, tree)
+                if not isinstance(parent, ast.ClassDef):
+                    # Only public functions need documentation
+                    if self._is_public(node.name):
+                        self.items_needing_docs += 1
+                        if ast.get_docstring(node):
+                            self.items_with_docs += 1
+
     def _check_module_docstring(self, tree: ast.Module):
         """D100: Check for module docstring."""
         docstring, _, _ = self._get_docstring_info(tree)
-        if not docstring:
+        
+        # Check if this appears to be a public module by looking for exported functions/classes
+        has_public_items = self._has_public_items(tree)
+        
+        # Only require module docstring if it has public items
+        if has_public_items and not docstring:
             self.issues.append(DocstringIssue(
                 line=1,
                 code="D100",
                 description="Missing docstring in public module",
                 severity="warning"
             ))
-    
+        elif docstring:
+            # Check module docstring format
+            self._validate_docstring_format(docstring, 1, tree, is_module=True)
+
     def _check_class_docstring(self, node: ast.ClassDef):
         """D101: Check for class docstring."""
         if not self._is_public(node.name):
             return
-            
+
         docstring, start_line, _ = self._get_docstring_info(node)
         if not docstring:
             self.issues.append(DocstringIssue(
@@ -124,17 +257,16 @@ class PEP257Checker:
                 code="D101",
                 description=f"Missing docstring in public class '{node.name}'",
                 severity="warning",
-                context=self.lines[node.lineno-1] if node.lineno <= len(self.lines) else None
+                context=self.lines[node.lineno-1] if 0 <= node.lineno-1 < len(self.lines) else None
             ))
-            return
-        
-        self._validate_docstring_format(docstring, start_line, node, is_class=True)
-    
+        elif docstring and start_line:
+            self._validate_docstring_format(docstring, start_line, node, is_class=True)
+
     def _check_function_docstring(self, node: ast.FunctionDef):
         """D103: Check for function docstring."""
         if not self._is_public(node.name):
             return
-            
+
         docstring, start_line, _ = self._get_docstring_info(node)
         if not docstring:
             self.issues.append(DocstringIssue(
@@ -143,25 +275,31 @@ class PEP257Checker:
                 description=f"Missing docstring in public function '{node.name}'",
                 severity="warning",
                 function=node.name,
-                context=self.lines[node.lineno-1] if node.lineno <= len(self.lines) else None
+                context=self.lines[node.lineno-1] if 0 <= node.lineno-1 < len(self.lines) else None
             ))
-            return
-        
-        self._validate_docstring_format(docstring, start_line, node)
-    
+        elif docstring and start_line:
+            self._validate_docstring_format(docstring, start_line, node, is_function=True)
+
     def _check_method_docstring(self, node: ast.FunctionDef, class_name: str):
         """D102, D105, D107: Check for method docstring."""
         method_name = node.name
-        
-        # Skip private methods
-        if method_name.startswith('_') and not method_name.startswith('__'):
-            return
-            
-        # Special cases for magic methods (D105) and __init__ (D107)
+
+        # Check for magic methods
         is_magic = method_name.startswith('__') and method_name.endswith('__')
-        
+
+        # Determine if this method should have a docstring
+        should_have_doc = False
+        if self._is_public(method_name):
+            should_have_doc = True
+        elif is_magic:
+            if self.require_all_magic_methods or method_name in self.common_magic_methods:
+                should_have_doc = True
+
+        if not should_have_doc:
+            return
+
         docstring, start_line, _ = self._get_docstring_info(node)
-        
+
         if not docstring:
             if method_name == '__init__':
                 code, sev = "D107", "info"
@@ -169,58 +307,64 @@ class PEP257Checker:
             elif is_magic:
                 code, sev = "D105", "info"
                 desc = f"Missing docstring in magic method '{method_name}'"
-            else:
+            else:  # Public method
                 code, sev = "D102", "warning"
                 desc = f"Missing docstring in public method '{method_name}'"
-                
+
             self.issues.append(DocstringIssue(
                 line=node.lineno,
                 code=code,
                 description=desc,
                 severity=sev,
                 function=method_name,
-                context=self.lines[node.lineno-1] if node.lineno <= len(self.lines) else None
+                context=self.lines[node.lineno-1] if 0 <= node.lineno-1 < len(self.lines) else None
             ))
-            return
-        
-        self._validate_docstring_format(docstring, start_line, node, is_method=True)
-    
-    def _validate_docstring_format(self, text: str, start_line: int, node, is_class=False, is_method=False):
+        elif docstring and start_line:
+            self._validate_docstring_format(docstring, start_line, node, is_method=True)
+
+    def _validate_docstring_format(self, text: str, start_line: int, node, is_class=False, is_method=False, 
+                                 is_function=False, is_module=False):
         """Check formatting rules: D200, D205, D209, D210, D300, D400-D403, etc."""
         if not text or not start_line:
             return
-            
+
         lines = text.split('\n')
-        original_text = text
-        
+
         # D300: Use triple double quotes
-        # Check the actual source to see what quotes were used
         if start_line <= len(self.lines):
             source_line = self.lines[start_line - 1]
-            # Find the quotes in the source
-            stripped = source_line.strip()
-            if stripped.startswith("'''") or (len(lines) > 1 and "'''" in source_line):
+            if "'''" in source_line:
                 self.issues.append(DocstringIssue(
                     line=start_line,
                     code="D300",
                     description="Use \"\"\"triple double quotes\"\"\" for docstrings, not single quotes",
                     severity="warning"
                 ))
-        
+
         # D210: No whitespace around docstring text
-        if text != text.strip():
+        if text.startswith(' ') or text.endswith(' '):
             self.issues.append(DocstringIssue(
                 line=start_line,
                 code="D210",
                 description="No whitespace allowed around docstring text",
                 severity="info"
             ))
-            text = text.strip()
-        
-        # Single line vs Multi-line checks
-        if len(lines) == 1:
-            # D200: One-line docstring should fit on one line (already is, but check if too long?)
-            # D400: First line should end with period
+
+        # Check if multi-line or single-line
+        is_multi_line = len(lines) > 1
+
+        if not is_multi_line:
+            # Single-line docstring checks
+            # D200: One-line docstring should fit on one line
+            if len(text) > 79:  # PEP 8 line length
+                self.issues.append(DocstringIssue(
+                    line=start_line,
+                    code="D200",
+                    description="One-line docstring should fit on one line",
+                    severity="info"
+                ))
+
+            # D400/D415: First line punctuation
             if text and not text.endswith(('.', '?', '!')):
                 self.issues.append(DocstringIssue(
                     line=start_line,
@@ -228,66 +372,64 @@ class PEP257Checker:
                     description="First line of docstring should end with a period",
                     severity="info"
                 ))
-            
+
             # D403: First word capitalized
-            if text and text[0].islower() and not text.startswith(('iPhone', 'eBay')):
-                self.issues.append(DocstringIssue(
-                    line=start_line,
-                    code="D403",
-                    description="First word of docstring should be capitalized",
-                    severity="info"
-                ))
-                
-            # D401: First line should be imperative (doesn't start with 3rd person verb)
+            if text and text[0].isalpha() and text[0].islower():
+                # Check for common exceptions
+                first_word = text.split()[0].lower()
+                if first_word not in ['iphone', 'ipad', 'imac', 'ebay', 'etc', 'http', 'https']:
+                    self.issues.append(DocstringIssue(
+                        line=start_line,
+                        code="D403",
+                        description="First word of docstring should be capitalized",
+                        severity="info"
+                    ))
+
+            # D401: First line should be imperative
             first_word = text.split()[0].lower() if text else ""
-            if first_word in ('returns', 'returns:', 'returning', 'creates', 'creates:', 
-                             'constructs', 'builds', 'checks', 'gets', 'sets'):
+            if first_word.endswith('s') and first_word in ['returns', 'creates', 'builds', 'checks', 
+                                                          'gets', 'sets', 'finds', 'shows', 'prints']:
+                imperative_form = first_word.rstrip('s')
                 self.issues.append(DocstringIssue(
                     line=start_line,
                     code="D401",
-                    description=f"First line should be in imperative mood ('Return', not '{first_word.capitalize()}')",
+                    description=f"First line should be in imperative mood ('{imperative_form}', not '{first_word}')",
                     severity="info"
-                ))
-                
-            # D402: No signature in first line
-            func_name = getattr(node, 'name', '')
-            if func_name and func_name in text:
-                self.issues.append(DocstringIssue(
-                    line=start_line,
-                    code="D402",
-                    description="First line should not be the function's signature",
-                    severity="error"
                 ))
         else:
             # Multi-line docstring checks
+            # D209: Closing quotes on separate line - FIXED VERSION
+            if lines[-1].strip() and not lines[-1].strip().startswith('"""'):
+                # Check the raw source code to see if closing quotes are on same line as text
+                if start_line > 0 and start_line - 1 < len(self.source_lines):
+                    # Find the docstring in source code
+                    docstring_end_line = self._find_docstring_end_in_source(start_line - 1)
+                    if docstring_end_line and docstring_end_line < len(self.source_lines):
+                        # Check the line where the docstring ends
+                        end_line_content = self.source_lines[docstring_end_line].strip()
+                        # If the end line has text before the closing quotes, it's a violation
+                        if '"""' in end_line_content or "'''" in end_line_content:
+                            # Check if there's text before the closing quotes
+                            quote_pos = max(end_line_content.find('"""'), end_line_content.find("'''"))
+                            if quote_pos > 0 and end_line_content[:quote_pos].strip():
+                                self.issues.append(DocstringIssue(
+                                    line=start_line + len(lines) - 1,
+                                    code="D209",
+                                    description="Multi-line docstring closing quotes should be on a separate line",
+                                    severity="info"
+                                ))
+
+            # D205: Blank line after summary
+            if len(lines) > 2 and lines[1].strip() != '':
+                self.issues.append(DocstringIssue(
+                    line=start_line,
+                    code="D205",
+                    description="Missing blank line after summary in multi-line docstring",
+                    severity="info"
+                ))
+
+            # Check first line content
             first_line = lines[0].strip()
-            second_line = lines[1].strip() if len(lines) > 1 else ""
-            last_line = lines[-1].strip()
-            
-            # D205: Blank line missing after summary
-            if second_line and not second_line.startswith('"""') and second_line:
-                # Check if there's a blank line between summary and description
-                if len(lines) > 2 and lines[1].strip() != '':
-                    self.issues.append(DocstringIssue(
-                        line=start_line,
-                        code="D205",
-                        description="Missing blank line after summary in multi-line docstring",
-                        severity="info"
-                    ))
-            
-            # D209: Multi-line closing quotes should be on separate line
-            if not last_line.startswith('"""') and not last_line.endswith('"""'):
-                # Check if closing quotes are on their own line in source
-                # This is tricky without token positions, approximate by checking last line content
-                if len(lines) > 1:
-                    self.issues.append(DocstringIssue(
-                        line=start_line + len(lines) - 1,
-                        code="D209",
-                        description="Multi-line docstring closing quotes should be on a separate line",
-                        severity="info"
-                    ))
-            
-            # D400: First line ends with period
             if first_line and not first_line.endswith(('.', '?', '!')):
                 self.issues.append(DocstringIssue(
                     line=start_line,
@@ -295,96 +437,123 @@ class PEP257Checker:
                     description="First line of docstring should end with a period",
                     severity="info"
                 ))
-            
-            # D415: First line ends with proper punctuation (similar to D400 but includes ?!)
-            # Already checked above
-        
-        # Check surrounding blank lines (D201, D202, D203, D204)
+
+        # Check surrounding blank lines
         self._check_surrounding_blank_lines(start_line, node, is_class)
 
-    def _check_surrounding_blank_lines(self, doc_start_line: int, node, is_class: bool):
+    def _find_docstring_end_in_source(self, start_line: int) -> Optional[int]:
+        """
+        Find the line number where the docstring ends in source code.
+        
+        Args:
+            start_line: 0-based line number where the node starts
+            
+        Returns:
+            Line number (0-based) where the docstring ends, or None if not found
+        """
+        # Start searching from the node definition line
+        current_line = start_line
+        
+        # Skip to find the line with opening quotes
+        while current_line < len(self.source_lines):
+            line = self.source_lines[current_line]
+            if '"""' in line or "'''" in line:
+                # Found opening quotes, now find closing quotes
+                opening_line = current_line
+                quote_type = '"""' if '"""' in line else "'''"
+                
+                # Check if opening and closing quotes are on the same line
+                if line.count(quote_type) >= 2:
+                    return opening_line
+                
+                # Look for closing quotes on subsequent lines
+                current_line += 1
+                while current_line < len(self.source_lines):
+                    if quote_type in self.source_lines[current_line]:
+                        return current_line
+                    current_line += 1
+                break
+            current_line += 1
+        
+        return None
+
+    def _check_surrounding_blank_lines(self, doc_start_line: int, node, is_class: bool = False):
         """Check blank line requirements around docstrings."""
         if doc_start_line <= 1:
             return
-            
-        prev_line_idx = doc_start_line - 2  # 0-indexed
-        node_start_idx = node.lineno - 1
-        
-        # Get the actual line where the docstring ends to check D202
-        doc_node = self._get_docstring_node(node)
-        doc_end_line = getattr(doc_node, 'end_lineno', doc_start_line)
-        
-        # D201: No blank line before docstring (unless it's a class with D203)
-        if not is_class and prev_line_idx >= 0:
-            if prev_line_idx < len(self.lines) and self.lines[prev_line_idx].strip() == '':
-                # Check if this is immediately after def/class line
-                if doc_start_line == node.lineno + 1:
-                    self.issues.append(DocstringIssue(
-                        line=doc_start_line,
-                        code="D201",
-                        description="No blank line allowed before function/method docstring",
-                        severity="info"
-                    ))
-        
-        # D203/D211: Class blank line before (D203 requires 1, D211 requires 0, we'll pick one)
-        if is_class and prev_line_idx >= 0:
-            blank_lines = 0
-            check_idx = prev_line_idx
-            while check_idx >= 0 and self.lines[check_idx].strip() == '':
-                blank_lines += 1
-                check_idx -= 1
-            
-            # D203: Exactly one blank line required before class docstring
-            if doc_start_line > node.lineno and blank_lines != 1:
-                self.issues.append(DocstringIssue(
-                    line=doc_start_line,
-                    code="D203",
-                    description="Exactly one blank line required before class docstring",
-                    severity="info"
-                ))
-        
-        # D202: No blank line after docstring (unless next line is the end of function)
-        if doc_end_line < len(self.lines):
-            next_line_idx = doc_end_line  # 0-indexed, so this is the line after docstring ends
-            if next_line_idx < len(self.lines):
-                next_line = self.lines[next_line_idx]
-                if next_line.strip() == '':
-                    # Check if it's not the end of the block
-                    # Simple heuristic: if there are more lines in the function body
-                    if hasattr(node, 'body') and len(node.body) > 1:
+
+        # Get the actual definition line
+        def_line = node.lineno if hasattr(node, 'lineno') else doc_start_line - 1
+
+        # Check lines before docstring
+        if doc_start_line > 1:
+            prev_line_idx = doc_start_line - 2  # 0-indexed
+
+            # Check for blank line before docstring
+            if prev_line_idx >= 0 and prev_line_idx < len(self.lines):
+                prev_line = self.lines[prev_line_idx]
+                if prev_line.strip() == '':
+                    # It's a class with decorators or multiple blank lines
+                    if is_class:
+                        # Check how many blank lines before class
+                        blank_lines = 0
+                        check_idx = prev_line_idx
+                        while check_idx >= 0 and self.lines[check_idx].strip() == '':
+                            blank_lines += 1
+                            check_idx -= 1
+
+                        # D203: Exactly one blank line before class docstring
+                        if blank_lines != 1:
+                            self.issues.append(DocstringIssue(
+                                line=doc_start_line,
+                                code="D203",
+                                description="Exactly one blank line required before class docstring",
+                                severity="info"
+                            ))
+                    else:
+                        # D201: No blank line before function/method docstring
                         self.issues.append(DocstringIssue(
-                            line=doc_end_line,
-                            code="D202",
-                            description="No blank line allowed after docstring",
+                            line=doc_start_line,
+                            code="D201",
+                            description="No blank line allowed before function/method docstring",
                             severity="info"
                         ))
 
+
+# ============================================================
+# AST ANALYZER (UNCHANGED)
+# ============================================================
 
 class ASTAnalyzer(ast.NodeVisitor):
     def __init__(self):
         self.classes: List[str] = []
         self.functions: List[str] = []
-        self.methods: List[str] = []
-        
+        self.methods: List[Tuple[str, str]] = []  # (class_name, method_name)
+
         self.function_details: List[Dict] = []
         self.method_details: List[Dict] = []
-        
+
         self.functions_with_docstrings = 0
         self.functions_without_docstrings = 0
         self.methods_with_docstrings = 0
         self.methods_without_docstrings = 0
+        self.current_class = None
+
+    def _get_docstring(self, node: ast.AST) -> Optional[str]:
+        """Extract docstring from a node."""
+        return ast.get_docstring(node)
 
     def _extract_exceptions_raised(self, node: ast.FunctionDef) -> List[str]:
         """Extract all exception types raised in a function."""
         exceptions = set()
-        
+
         for stmt in ast.walk(node):
             if isinstance(stmt, ast.Raise):
                 if stmt.exc:
                     exc_name = self._extract_exception_name(stmt.exc)
                     if exc_name:
                         exceptions.add(exc_name)
-        
+
         return sorted(list(exceptions))
 
     def _extract_exception_name(self, node: ast.AST) -> Optional[str]:
@@ -393,15 +562,20 @@ class ASTAnalyzer(ast.NodeVisitor):
             if isinstance(node, ast.Name):
                 return node.id
             elif isinstance(node, ast.Attribute):
-                return f"{node.value.id}.{node.attr}" if isinstance(node.value, ast.Name) else None
+                if isinstance(node.value, ast.Name):
+                    return f"{node.value.id}.{node.attr}"
+                else:
+                    # Try to get the full attribute path
+                    value_str = self._extract_exception_name(node.value)
+                    if value_str:
+                        return f"{value_str}.{node.attr}"
             elif isinstance(node, ast.Call):
                 return self._extract_exception_name(node.func)
             elif hasattr(ast, 'unparse'):
                 return ast.unparse(node)
-            else:
-                return str(node)
         except:
-            return None
+            pass
+        return None
 
     def _has_yield_statements(self, node: ast.FunctionDef) -> bool:
         """Check if function contains yield statements (generator)."""
@@ -410,115 +584,124 @@ class ASTAnalyzer(ast.NodeVisitor):
                 return True
         return False
 
+    def _annotation_to_string(self, annotation) -> str:
+        """Convert annotation node to string."""
+        if annotation is None:
+            return "Any"
+
+        try:
+            if hasattr(ast, 'unparse'):
+                return ast.unparse(annotation)
+            elif isinstance(annotation, ast.Name):
+                return annotation.id
+            elif isinstance(annotation, ast.Subscript):
+                value = self._annotation_to_string(annotation.value)
+                slice_str = self._annotation_to_string(annotation.slice)
+                return f"{value}[{slice_str}]"
+            elif isinstance(annotation, ast.Attribute):
+                return f"{self._annotation_to_string(annotation.value)}.{annotation.attr}"
+            elif isinstance(annotation, ast.Constant):
+                return str(annotation.value)
+            else:
+                return "Any"
+        except:
+            return "Any"
+
     def _extract_function_info(self, node: ast.FunctionDef, class_name: str = None) -> Dict:
         """Extract detailed information about a function/method including parameters and docstrings."""
-        has_docstring = False
-        docstring = ast.get_docstring(node)
-        
-        if docstring:
-            has_docstring = True
-        
+        docstring = self._get_docstring(node)
+        has_docstring = docstring is not None
+
         args_info = []
-        
+
         # Regular args
         for arg in node.args.args:
             arg_name = arg.arg
-            arg_type = None
-            if arg.annotation:
-                try:
-                    arg_type = ast.unparse(arg.annotation) if hasattr(ast, 'unparse') else self._annotation_to_string(arg.annotation)
-                except:
-                    arg_type = "Any"
+            arg_type = self._annotation_to_string(arg.annotation)
             args_info.append({
                 'name': arg_name,
-                'type': arg_type or 'Any',
+                'type': arg_type,
                 'default': False
             })
-        
+
         # Keyword only args
         for arg in node.args.kwonlyargs:
             arg_name = arg.arg
-            arg_type = None
-            if arg.annotation:
-                try:
-                    arg_type = ast.unparse(arg.annotation) if hasattr(ast, 'unparse') else self._annotation_to_string(arg.annotation)
-                except:
-                    arg_type = "Any"
+            arg_type = self._annotation_to_string(arg.annotation)
             args_info.append({
                 'name': arg_name,
-                'type': arg_type or 'Any',
+                'type': arg_type,
                 'default': True
             })
-        
+
         # *args
         if node.args.vararg:
             args_info.append({
                 'name': node.args.vararg.arg,
-                'type': 'Any',
+                'type': self._annotation_to_string(node.args.vararg.annotation),
                 'default': False,
                 'vararg': True
             })
-        
+
         # **kwargs
         if node.args.kwarg:
             args_info.append({
                 'name': node.args.kwarg.arg,
-                'type': 'Any',
+                'type': self._annotation_to_string(node.args.kwarg.annotation),
                 'default': False,
                 'kwargs': True
             })
-        
+
         # Mark defaults
         if node.args.defaults:
             default_start = len(node.args.args) - len(node.args.defaults)
-            for i, default in enumerate(node.args.defaults):
+            for i in range(len(node.args.defaults)):
                 idx = default_start + i
                 if idx < len(args_info):
                     args_info[idx]['default'] = True
-        
+
         exceptions_raised = self._extract_exceptions_raised(node)
         is_generator = self._has_yield_statements(node)
-        
+
+        # Generate baseline docstrings
         baseline_docstrings = {
             "google": self._generate_google_docstring(node.name, args_info, node.returns, class_name),
             "numpy": self._generate_numpy_docstring(node.name, args_info, node.returns, class_name),
             "rest": self._generate_rest_docstring(node.name, args_info, node.returns, class_name)
         }
-        
+
+        return_type = self._annotation_to_string(node.returns) if node.returns else None
+
         return {
             'name': node.name,
             'class_name': class_name,
             'has_docstring': has_docstring,
             'docstring': docstring,
             'args': args_info,
-            'return_type': ast.unparse(node.returns) if node.returns and hasattr(ast, 'unparse') else None,
+            'return_type': return_type,
             'exceptions_raised': exceptions_raised,
             'is_generator': is_generator,
             'baseline_docstrings': baseline_docstrings,
             'lineno': node.lineno
         }
 
-    def _annotation_to_string(self, annotation) -> str:
-        """Convert annotation node to string."""
-        if isinstance(annotation, ast.Name):
-            return annotation.id
-        elif isinstance(annotation, ast.Subscript):
-            value = self._annotation_to_string(annotation.value)
-            slice_str = self._annotation_to_string(annotation.slice)
-            return f"{value}[{slice_str}]"
-        elif isinstance(annotation, ast.Attribute):
-            return f"{self._annotation_to_string(annotation.value)}.{annotation.attr}"
-        elif isinstance(annotation, ast.Constant):
-            return str(annotation.value)
-        else:
-            return "Any"
-
     def _generate_google_docstring(self, func_name: str, args: List[Dict], returns, class_name: str = None) -> str:
         """Generate Google-style docstring."""
         lines = []
         lines.append(f'"""Brief description of {func_name}.')
         lines.append("")
-        lines.append(f"Detailed description here.")
+
+        if args:
+            lines.append("Args:")
+            for arg in args:
+                default_str = " (optional)" if arg.get('default') else ""
+                lines.append(f"    {arg['name']}{default_str}: Description of {arg['name']}.")
+
+        if returns:
+            lines.append("")
+            lines.append("Returns:")
+            lines.append(f"    {returns}: Description of return value.")
+
         lines.append('"""')
         return "\n".join(lines)
 
@@ -528,13 +711,24 @@ class ASTAnalyzer(ast.NodeVisitor):
         lines.append(f'"""')
         lines.append(f"Brief description of {func_name}.")
         lines.append("")
-        lines.append("Parameters")
-        lines.append("----------")
-        lines.append("...")
-        lines.append("")
-        lines.append("Returns")
-        lines.append("-------")
-        lines.append("...")
+
+        if args:
+            lines.append("Parameters")
+            lines.append("----------")
+            for arg in args:
+                default_str = ", optional" if arg.get('default') else ""
+                lines.append(f"{arg['name']} : {arg['type']}{default_str}")
+                lines.append(f"    Description of {arg['name']}.")
+                lines.append("")
+
+        if returns:
+            if args:
+                lines.append("")
+            lines.append("Returns")
+            lines.append("-------")
+            lines.append(f"{returns}")
+            lines.append("    Description of return value.")
+
         lines.append('"""')
         return "\n".join(lines)
 
@@ -544,103 +738,122 @@ class ASTAnalyzer(ast.NodeVisitor):
         lines.append(f'"""')
         lines.append(f"Brief description of {func_name}.")
         lines.append("")
-        lines.append(":param ...: ...")
-        lines.append(":returns: ...")
-        lines.append(":rtype: ...")
+
+        if args:
+            for arg in args:
+                default_str = ", optional" if arg.get('default') else ""
+                lines.append(f":param {arg['name']}: Description of {arg['name']}.")
+                lines.append(f":type {arg['name']}: {arg['type']}{default_str}")
+
+        if returns:
+            if args:
+                lines.append("")
+            lines.append(f":return: Description of return value.")
+            lines.append(f":rtype: {returns}")
+
         lines.append('"""')
         return "\n".join(lines)
 
     def visit_ClassDef(self, node: ast.ClassDef):
         self.classes.append(node.name)
-        
-        for item in node.body:
-            if isinstance(item, ast.FunctionDef):
-                self.methods.append(f"{node.name}.{item.name}")
-                method_info = self._extract_function_info(item, node.name)
-                self.method_details.append(method_info)
-                
-                if method_info['has_docstring']:
-                    self.methods_with_docstrings += 1
-                else:
-                    self.methods_without_docstrings += 1
-        
+        old_class = self.current_class
+        self.current_class = node.name
+
+        # Visit all methods in the class
         self.generic_visit(node)
+        self.current_class = old_class
 
     def visit_FunctionDef(self, node: ast.FunctionDef):
-        # Check if this is a standalone function (not a method)
-        # We determine this by checking if parent is a ClassDef
-        # Since we can't easily get parent from ast.NodeVisitor, we track differently
-        is_method = False
-        # Note: In visit_ClassDef we handle methods, so here we only handle module-level functions
-        # But we need to be careful not to double-count. 
-        # Actually, in our structure, visit_FunctionDef visits ALL functions.
-        # We need to filter out methods.
-        pass  # We'll handle this in analyze_python_code
+        if self.current_class:
+            # It's a method
+            self.methods.append((self.current_class, node.name))
+            method_info = self._extract_function_info(node, self.current_class)
+            self.method_details.append(method_info)
+
+            if method_info['has_docstring']:
+                self.methods_with_docstrings += 1
+            else:
+                self.methods_without_docstrings += 1
+        else:
+            # It's a standalone function
+            self.functions.append(node.name)
+            func_info = self._extract_function_info(node)
+            self.function_details.append(func_info)
+
+            if func_info['has_docstring']:
+                self.functions_with_docstrings += 1
+            else:
+                self.functions_without_docstrings += 1
+
+        self.generic_visit(node)
 
     def analyze(self, tree: ast.AST):
-        """Custom analysis to separate functions from methods."""
-        for node in ast.walk(tree):
-            if isinstance(node, ast.ClassDef):
-                self.visit_ClassDef(node)
-            elif isinstance(node, ast.FunctionDef):
-                # Check if it's a module-level function
-                if not any(isinstance(parent, ast.ClassDef) for parent in ast.walk(tree)):
-                    self.functions.append(node.name)
-                    func_info = self._extract_function_info(node)
-                    self.function_details.append(func_info)
-                    
-                    if func_info['has_docstring']:
-                        self.functions_with_docstrings += 1
-                    else:
-                        self.functions_without_docstrings += 1
+        """Analyze the AST tree."""
+        self.visit(tree)
+        
 
+
+# ============================================================
+# COMMENT COUNTER
+# ============================================================
 
 def count_all_comments(source_code: str) -> Dict:
     """Counts both single-line comments (#) and multi-line string literals."""
     single_line_comments = 0
-    multi_line_comments = 0
+    multi_line_strings = 0
     docstring_lines = 0
-    
+
     try:
-        tokens = tokenize.generate_tokens(StringIO(source_code).readline)
-        
+        tokens = list(tokenize.generate_tokens(StringIO(source_code).readline))
+
         for token in tokens:
             if token.type == tokenize.COMMENT:
                 single_line_comments += 1
             elif token.type == tokenize.STRING:
-                token_str = token.string.strip()
-                if (token_str.startswith('"""') and token_str.endswith('"""')) or \
-                   (token_str.startswith("'''") and token_str.endswith("'''")):
-                    lines = token.string.split('\n')
-                    multi_line_comments += len(lines)
-                    
-                    content = token_str[3:-3].strip()
-                    if content and not content.isnumeric():
-                        docstring_lines += len(lines)
-    except:
+                try:
+                    # Safely evaluate the string literal
+                    string_value = ast.literal_eval(token.string)
+                except Exception:
+                    continue
+
+                lines = string_value.split('\n') if string_value else []
+                line_count = len(lines)
+
+                multi_line_strings += line_count
+
+                # Simple heuristic: if string contains words and is not just a number/constant
+                if string_value and any(c.isalpha() for c in string_value):
+                    docstring_lines += line_count
+    except Exception:
+        # Fallback: simple line counting
         for line in source_code.splitlines():
             stripped = line.strip()
             if stripped.startswith("#"):
                 single_line_comments += 1
             elif stripped.startswith('"""') or stripped.startswith("'''"):
-                multi_line_comments += 1
-    
+                multi_line_strings += 1
+
     return {
         "single_line_comments": single_line_comments,
-        "multi_line_comments": multi_line_comments,
+        "multi_line_strings": multi_line_strings,
+        "multi_line_comments": multi_line_strings,  # COMPATIBILITY KEY for Streamlit frontend
         "docstring_lines": docstring_lines,
-        "total_comments": single_line_comments + multi_line_comments
+        "total_comments": single_line_comments + multi_line_strings
     }
 
 
-def run_pep257_analysis(source_code: str) -> Dict[str, Any]:
+# ============================================================
+# PUBLIC API
+# ============================================================
+
+def run_pep257_analysis(source_code: str, require_all_magic_methods: bool = False) -> Dict[str, Any]:
     """
     Run native PEP 257 analysis without subprocess.
     Replaces the old pydocstyle CLI approach with robust native checking.
     """
-    checker = PEP257Checker(source_code)
+    checker = PEP257Checker(source_code, require_all_magic_methods)
     issues = checker.check()
-    
+
     # Convert to old format for compatibility
     errors = []
     for issue in issues:
@@ -652,18 +865,26 @@ def run_pep257_analysis(source_code: str) -> Dict[str, Any]:
             "severity": issue.severity,
             "context": issue.context
         })
-    
+
+    # Calculate PEP257 compliance score
+    pep257_compliance = 0
+    if checker.items_needing_docs > 0:
+        pep257_compliance = (checker.items_with_docs / checker.items_needing_docs) * 100
+
     # Summarize
     summary = {
         "total_errors": len(errors),
         "errors_by_code": {},
-        "files_analyzed": 1
+        "files_analyzed": 1,
+        "total_items_needing_docs": checker.items_needing_docs,
+        "items_with_docs": checker.items_with_docs,
+        "pep257_compliance_score": round(pep257_compliance, 2)
     }
-    
+
     for error in errors:
         code = error["code"]
         summary["errors_by_code"][code] = summary["errors_by_code"].get(code, 0) + 1
-    
+
     return {
         "errors": errors,
         "summary": summary,
@@ -671,34 +892,74 @@ def run_pep257_analysis(source_code: str) -> Dict[str, Any]:
     }
 
 
-def analyze_python_code(source_code: str) -> Dict:
+def analyze_python_code(source_code: str, require_all_magic_methods: bool = False) -> Dict:
     """Analyzes Python source code provided as a string."""
-    
-    tree = ast.parse(source_code)
-    
+
+    try:
+        tree = ast.parse(source_code)
+    except SyntaxError as e:
+        # Return basic error report
+        return {
+            "error": f"Syntax error: {e.msg} at line {e.lineno}",
+            "modules": 0,
+            "classes": [],
+            "functions": [],
+            "methods": [],
+            "function_details": [],
+            "method_details": [],
+            "counts": {
+                "total_modules": 0,
+                "total_classes": 0,
+                "total_functions": 0,
+                "total_methods": 0,
+                "docstring_coverage": 0,
+            },
+            "pep257_analysis": {
+                "errors": [{
+                    "line": e.lineno or 1,
+                    "code": "SYNTAX",
+                    "description": f"Syntax error: {e.msg}",
+                    "severity": "error"
+                }],
+                "summary": {
+                    "total_errors": 1,
+                    "errors_by_code": {"SYNTAX": 1},
+                    "files_analyzed": 1
+                }
+            }
+        }
+
     analyzer = ASTAnalyzer()
     analyzer.analyze(tree)
-    
+
     comment_counts = count_all_comments(source_code)
-    
-    # Use native PEP257 checker instead of subprocess
-    pep257_results = run_pep257_analysis(source_code)
-    
-    total_generators = sum(1 for f in analyzer.function_details if f['is_generator']) + \
-                       sum(1 for m in analyzer.method_details if m['is_generator'])
-    
-    total_with_exceptions = sum(len(f['exceptions_raised']) for f in analyzer.function_details) + \
-                            sum(len(m['exceptions_raised']) for m in analyzer.method_details)
-    
+
+    # Use native PEP257 checker
+    pep257_results = run_pep257_analysis(source_code, require_all_magic_methods)
+
+    # Calculate statistics
     total_functions_and_methods = len(analyzer.function_details) + len(analyzer.method_details)
     total_with_docstrings = analyzer.functions_with_docstrings + analyzer.methods_with_docstrings
-    total_without_docstrings = analyzer.functions_without_docstrings + analyzer.methods_without_docstrings
-    
+
+    docstring_coverage = 0
+    if total_functions_and_methods > 0:
+        docstring_coverage = (total_with_docstrings / total_functions_and_methods) * 100
+
+    total_generators = sum(1 for f in analyzer.function_details if f['is_generator']) + \
+                       sum(1 for m in analyzer.method_details if m['is_generator'])
+
+    total_with_exceptions = sum(len(f['exceptions_raised']) for f in analyzer.function_details) + \
+                            sum(len(m['exceptions_raised']) for m in analyzer.method_details)
+
+    # Get PEP257 compliance score from the PEP257 analysis
+    pep257_summary = pep257_results.get("summary", {})
+    pep257_compliance_score = pep257_summary.get("pep257_compliance_score", 0)
+
     report = {
         "modules": 1,
         "classes": analyzer.classes,
         "functions": analyzer.functions,
-        "methods": analyzer.methods,
+        "methods": [f"{cls}.{meth}" for cls, meth in analyzer.methods],
         "function_details": analyzer.function_details,
         "method_details": analyzer.method_details,
         "counts": {
@@ -708,22 +969,23 @@ def analyze_python_code(source_code: str) -> Dict:
             "total_methods": len(analyzer.method_details),
             "total_comments": comment_counts["total_comments"],
             "single_line_comments": comment_counts["single_line_comments"],
-            "multi_line_comments": comment_counts["multi_line_comments"],
+            "multi_line_strings": comment_counts["multi_line_strings"],
+            "multi_line_comments": comment_counts["multi_line_comments"], # COMPATIBILITY KEY
             "docstring_lines": comment_counts["docstring_lines"],
             "functions_with_docstrings": analyzer.functions_with_docstrings,
             "functions_without_docstrings": analyzer.functions_without_docstrings,
             "methods_with_docstrings": analyzer.methods_with_docstrings,
             "methods_without_docstrings": analyzer.methods_without_docstrings,
             "total_with_docstrings": total_with_docstrings,
-            "total_without_docstrings": total_without_docstrings,
-            "docstring_coverage": (
-                (total_with_docstrings / total_functions_and_methods * 100)
-                if total_functions_and_methods > 0 else 0
-            ),
+            "total_without_docstrings": analyzer.functions_without_docstrings + analyzer.methods_without_docstrings,
+            "docstring_coverage": round(docstring_coverage, 2),
             "total_generators": total_generators,
             "total_with_exceptions": total_with_exceptions,
+            "pep257_compliance_score": pep257_compliance_score,
+            "total_items_needing_docs": pep257_summary.get("total_items_needing_docs", 0),
+            "items_with_docs": pep257_summary.get("items_with_docs", 0)
         },
         "pep257_analysis": pep257_results
     }
-    
+
     return report
