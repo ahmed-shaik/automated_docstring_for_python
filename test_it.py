@@ -33,8 +33,6 @@ def calculate_total(items, discount=0.1):
 class Calculator:
     """
     Calculator class.
-    
-    This class has 2 method(s).
     """
     def multiply(self, x, y):
         """
