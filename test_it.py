@@ -1,3 +1,4 @@
+
 """Module containing various functions and classes.
 
 This module provides utility functions and classes for different operations.
@@ -36,7 +37,7 @@ class Calculator:
     """
     def multiply(self, x, y):
         """
-        multiply method of the Calculator class.
+        multiply function.
         
         Args:
             x: Required parameter.
