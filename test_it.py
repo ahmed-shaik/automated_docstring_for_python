@@ -36,7 +36,7 @@ class Calculator:
     """
     def multiply(self, x, y):
         """
-        multiply function.
+        multiply method of the Calculator class.
         
         Args:
             x: Required parameter.
@@ -49,7 +49,7 @@ class Calculator:
     
     def power(self, base, exponent):
         """
-        power function.
+        power method of the Calculator class.
         
         Args:
             base: Required parameter.
