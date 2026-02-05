@@ -13,6 +13,12 @@ class PEP257Checker:
     """Main checker class that analyzes PEP 257 compliance."""
     
     def __init__(self):
+        """
+        __init__ function that performs an operation.
+        
+        Returns:
+            None: This function does not return a value.
+        """
         self.violations = []
         self.docstring_nodes = {
             'module': [],
@@ -348,6 +354,30 @@ def main():
     score, violations = checker.check_file(filepath)
     
     print_report(filepath, score, violations)
+    
+    try:
+        import tomllib
+    except ModuleNotFoundError:
+        import tomli as tomllib
+    from pathlib import Path
+    
+    pyproject = Path(__file__).resolve().parent / "pyproject.toml"
+    
+    if pyproject.exists():
+        with pyproject.open("rb") as f:
+            data = tomllib.load(f)
+    
+        cfg = data.get("tool", {}).get("code_quality", {})
+        min_score = cfg.get("min_pep257_score")
+    
+        if min_score is not None and score < min_score:
+            print("\nPEP257 quality gate failed!")
+            print(f"Required: {min_score}%")
+            print(f"Actual:   {score}%")
+            sys.exit(1)
+    
+    sys.exit(0)
+
 
 
 if __name__ == "__main__":
