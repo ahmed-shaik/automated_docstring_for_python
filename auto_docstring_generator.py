@@ -14,6 +14,15 @@ class DocstringGenerator:
     """Generates Google-style docstrings for Python functions."""
     
     def __init__(self, source_code: str):
+        """
+        __init__ function that performs an operation.
+        
+        Args:
+            source_code (str): Required parameter.
+        
+        Returns:
+            None: This function does not return a value.
+        """
         self.source_code = source_code
         self.lines = source_code.split('\n')
         self.modified_lines = self.lines.copy()
@@ -751,7 +760,7 @@ def main():
         return 1
     
     print(f"\n{'='*60}")
-    print("✅ Docstring generation completed successfully!")
+    print("Docstring generation completed successfully!")
     print('='*60)
     
     return 0

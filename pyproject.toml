@@ -1,0 +1,55 @@
+[tool.code_quality]
+
+# -------------------------------------------------
+# DOCSTRING COVERAGE (used by analyzer.py)
+# -------------------------------------------------
+
+# Minimum average docstring coverage % required
+min_coverage = 80
+
+
+# -------------------------------------------------
+# PEP 257 COMPLIANCE (used by pep257_checker.py)
+# -------------------------------------------------
+
+# Minimum acceptable PEP257 score
+min_pep257_score = 85
+
+
+# -------------------------------------------------
+# FILE SELECTION
+# -------------------------------------------------
+
+# Which Python files are allowed to be checked
+include_patterns = ["*.py"]
+
+# Paths to ignore (optional)
+exclude_dirs = [
+    ".venv",
+    "venv",
+    "__pycache__",
+    "build",
+    "dist",
+]
+
+
+# -------------------------------------------------
+# AUTO DOCSTRING GENERATOR
+# -------------------------------------------------
+
+# Run auto doc generator before checks
+run_autodoc = true
+
+# Modify files in-place before commit
+autodoc_inplace = true
+
+
+# -------------------------------------------------
+# PRE-COMMIT BEHAVIOR
+# -------------------------------------------------
+
+# If true → block commit when thresholds fail
+enforce = true
+
+# Print verbose logs
+verbose = true
