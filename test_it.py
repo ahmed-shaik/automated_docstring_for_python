@@ -49,7 +49,7 @@ class Calculator:
     
     def power(self, base, exponent):
         """
-        power method of the Calculator class.
+        power function.
         
         Args:
             base: Required parameter.
