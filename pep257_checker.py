@@ -295,7 +295,7 @@ def print_report(filepath: str, score: float, violations: List[Dict]) -> None:
     print(f"\nCompliance Score: {score}%\n")
     
     if score == 100:
-        print("✅ Perfect PEP 257 compliance!")
+        print("Perfect PEP 257 compliance!")
         return
     
     if violations:
@@ -352,30 +352,30 @@ def main():
     
     checker = PEP257Checker()
     score, violations = checker.check_file(filepath)
-    
+
     print_report(filepath, score, violations)
-    
+
     try:
         import tomllib
     except ModuleNotFoundError:
         import tomli as tomllib
     from pathlib import Path
-    
+
     pyproject = Path(__file__).resolve().parent / "pyproject.toml"
-    
+
     if pyproject.exists():
         with pyproject.open("rb") as f:
             data = tomllib.load(f)
-    
+
         cfg = data.get("tool", {}).get("code_quality", {})
         min_score = cfg.get("min_pep257_score")
-    
+
         if min_score is not None and score < min_score:
             print("\nPEP257 quality gate failed!")
             print(f"Required: {min_score}%")
             print(f"Actual:   {score}%")
             sys.exit(1)
-    
+
     sys.exit(0)
 
 
