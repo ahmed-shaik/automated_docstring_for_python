@@ -42,16 +42,6 @@ class Calculator:
 
     
     def power(self, base, exponent):
-        """
-        power function.
-
-        
-        Args:
-            base: Required parameter.
-            exponent: Required parameter.
-        
-        Returns:
-            Any: The result of the operation            """
         result = 1
 
         for _ in range(exponent):
