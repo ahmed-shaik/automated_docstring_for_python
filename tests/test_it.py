@@ -8,6 +8,7 @@ def add(a, b):
     """
     add function.
 
+
     
     Args:
         a: Required parameter.
@@ -20,9 +21,11 @@ def add(a, b):
 
 
 
+
 def calculate_total(items, discount=0.1):
     """
     calculate_total function.
+
 
 
     
@@ -33,6 +36,7 @@ def calculate_total(items, discount=0.1):
     Returns:
         Any: The result of the operation.    """
     total = sum(items)
+
 
 
     return total * (1 - discount)
@@ -46,6 +50,7 @@ class Calculator:
         multiply function.
 
 
+
         
         Args:
             x: Required parameter.
@@ -55,6 +60,7 @@ class Calculator:
             Any: The result of the operation.
         """
         return x * y
+
 
 
     
@@ -71,6 +77,7 @@ class Calculator:
             Any: The result of the operation.
         """
         result = 1
+
 
 
         for _ in range(exponent):
