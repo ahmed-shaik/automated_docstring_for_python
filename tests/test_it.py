@@ -9,6 +9,8 @@ def add(a, b):
     add function.
 
 
+
+
     
     Args:
         a: Required parameter.
@@ -22,9 +24,13 @@ def add(a, b):
 
 
 
+
+
 def calculate_total(items, discount=0.1):
     """
     calculate_total function.
+
+
 
 
 
@@ -39,6 +45,8 @@ def calculate_total(items, discount=0.1):
 
 
 
+
+
     return total * (1 - discount)
 
 class Calculator:
@@ -48,7 +56,6 @@ class Calculator:
     def multiply(self, x, y):
         """
         multiply function.
-
 
 
         
@@ -63,10 +70,13 @@ class Calculator:
 
 
 
+
+
     
     def power(self, base, exponent):
         """
         power function.
+
 
         
         Args:
@@ -80,6 +90,8 @@ class Calculator:
 
 
 
+
+
         for _ in range(exponent):
             result *= base
         return result
@@ -87,6 +99,8 @@ class Calculator:
 def process_data(data: list) -> dict:
     """
     process_data function that returns dict.
+
+
 
     
     Args:
