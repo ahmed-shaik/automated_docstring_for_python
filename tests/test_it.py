@@ -27,8 +27,7 @@ def calculate_total(items, discount=0.1):
         discount: Required parameter.
     
     Returns:
-        Any: The result of the operation.
-    """
+        Any: The result of the operation.    """
     total = sum(items)
 
     return total * (1 - discount)
