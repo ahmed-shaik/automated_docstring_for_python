@@ -1,8 +1,7 @@
 
 """Module containing various functions and classes.
 
-This module provides utility functions and classes for different operations.
-"""
+This module provides utility functions and classes for different operations."""
 
 def add(a, b):
     """
@@ -14,8 +13,7 @@ def add(a, b):
         b: Required parameter.
     
     Returns:
-        Any: The result of the operation.
-    """
+        Any: The result of the operation.    """
     return a + b
 
 
