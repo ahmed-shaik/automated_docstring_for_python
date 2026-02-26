@@ -57,8 +57,7 @@ class Calculator:
             exponent: Required parameter.
         
         Returns:
-            Any: The result of the operation.
-        """
+            Any: The result of the operation."""
         result = 1
         for _ in range(exponent):
             result *= base
