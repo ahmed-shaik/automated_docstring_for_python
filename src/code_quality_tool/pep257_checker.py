@@ -361,7 +361,7 @@ def main():
         import tomli as tomllib
     from pathlib import Path
 
-    pyproject = Path(__file__).resolve().parent / "pyproject.toml"
+    pyproject = Path.cwd() / "pyproject.toml"
 
     if pyproject.exists():
         with pyproject.open("rb") as f:
