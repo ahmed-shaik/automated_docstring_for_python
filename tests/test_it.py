@@ -4,16 +4,6 @@
 This module provides utility functions and classes for different operations."""
 
 def add(a, b):
-    """
-    add function.
-
-    
-    Args:
-        a: Required parameter.
-        b: Required parameter.
-    
-    Returns:
-        Any: The result of the operation."""
     return a + b
 
 
