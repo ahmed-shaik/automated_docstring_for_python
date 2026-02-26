@@ -7,6 +7,7 @@ This module provides utility functions and classes for different operations.
 def add(a, b):
     """
     add function.
+
     
     Args:
         a: Required parameter.
@@ -17,9 +18,11 @@ def add(a, b):
     """
     return a + b
 
+
 def calculate_total(items, discount=0.1):
     """
     calculate_total function.
+
     
     Args:
         items: Optional parameter with a default value.
@@ -29,6 +32,7 @@ def calculate_total(items, discount=0.1):
         Any: The result of the operation.
     """
     total = sum(items)
+
     return total * (1 - discount)
 
 class Calculator:
@@ -38,6 +42,7 @@ class Calculator:
     def multiply(self, x, y):
         """
         multiply function.
+
         
         Args:
             x: Required parameter.
@@ -47,10 +52,12 @@ class Calculator:
             Any: The result of the operation.
         """
         return x * y
+
     
     def power(self, base, exponent):
         """
         power function.
+
         
         Args:
             base: Required parameter.
@@ -58,8 +65,9 @@ class Calculator:
         
         Returns:
             Any: The result of the operation.
-        """
+            """
         result = 1
+
         for _ in range(exponent):
             result *= base
         return result
@@ -67,11 +75,12 @@ class Calculator:
 def process_data(data: list) -> dict:
     """
     process_data function that returns dict.
+
     
     Args:
         data (list): Required parameter.
     
     Returns:
         dict: The processed result.
-    """
+        """
     return {"processed": len(data)}
