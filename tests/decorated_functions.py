@@ -7,6 +7,10 @@ def my_decorator(func):
     """
 my_decorator function.
 
+
+
+
+
 Args:
     func: Required parameter.
 
@@ -17,6 +21,10 @@ Returns:
     def wrapper(*args, **kwargs):
         """
         wrapper function.
+
+
+
+
         
         Args:
             args: Variable number of positional arguments.
@@ -27,6 +35,10 @@ Returns:
         """
         return func(*args, **kwargs)
 
+
+
+
+
     return wrapper
 
 
@@ -34,6 +46,10 @@ Returns:
 def greet(name):
     """
     greet function.
+
+
+
+
     
     Args:
         name: Required parameter.
