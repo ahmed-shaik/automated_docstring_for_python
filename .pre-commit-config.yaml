@@ -3,10 +3,8 @@ repos:
     hooks:
       - id: code-quality-gate
         name: Auto docstring + PEP257 + Coverage
-        entry: python -m code_quality_tool.quality_gate
+        entry: python src/code_quality_tool/quality_gate.py
         language: system
         types: [python]
         pass_filenames: false
         always_run: true
-        env:
-          PYTHONPATH: src
