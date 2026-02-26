@@ -61,8 +61,7 @@ class Calculator:
             exponent: Required parameter.
         
         Returns:
-            Any: The result of the operation.
-            """
+            Any: The result of the operation            """
         result = 1
 
         for _ in range(exponent):
@@ -78,6 +77,5 @@ def process_data(data: list) -> dict:
         data (list): Required parameter.
     
     Returns:
-        dict: The processed result.
-        """
+        dict: The processed result.        """
     return {"processed": len(data)}
