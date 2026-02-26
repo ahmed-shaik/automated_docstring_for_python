@@ -1,15 +1,29 @@
 
 """Module containing various functions and classes.
 
-This module provides utility functions and classes for different operations."""
+This module provides utility functions and classes for different operations.
+"""
 
 def add(a, b):
+    """
+    add function.
+
+    
+    Args:
+        a: Required parameter.
+        b: Required parameter.
+    
+    Returns:
+        Any: The result of the operation.
+    """
     return a + b
+
 
 
 def calculate_total(items, discount=0.1):
     """
     calculate_total function.
+
 
     
     Args:
@@ -19,6 +33,7 @@ def calculate_total(items, discount=0.1):
     Returns:
         Any: The result of the operation.    """
     total = sum(items)
+
 
     return total * (1 - discount)
 
@@ -30,6 +45,7 @@ class Calculator:
         """
         multiply function.
 
+
         
         Args:
             x: Required parameter.
@@ -40,9 +56,22 @@ class Calculator:
         """
         return x * y
 
+
     
     def power(self, base, exponent):
+        """
+        power function.
+
+        
+        Args:
+            base: Required parameter.
+            exponent: Required parameter.
+        
+        Returns:
+            Any: The result of the operation.
+        """
         result = 1
+
 
         for _ in range(exponent):
             result *= base
@@ -57,5 +86,6 @@ def process_data(data: list) -> dict:
         data (list): Required parameter.
     
     Returns:
-        dict: The processed result.        """
+        dict: The processed result.
+    """
     return {"processed": len(data)}
