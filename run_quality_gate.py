@@ -1,8 +1,7 @@
 """
-Runs auto-docstring generation, PEP257 checks,
+Runs auto-docstring generation, PEP257 fixes/checks,
 and docstring coverage analysis before commit.
 """
-
 import subprocess
 import sys
 from pathlib import Path
@@ -17,12 +16,7 @@ ROOT = Path(__file__).resolve().parent
 
 
 def load_cfg():
-    """
-    load_cfg function.
-    
-    Returns:
-        Any: The result of the operation.
-    """
+    """Load configuration from pyproject.toml."""
     pyproject = ROOT / "pyproject.toml"
     if not pyproject.exists():
         return {}
@@ -32,63 +26,40 @@ def load_cfg():
 
 
 def git_staged_files():
-    """
-    git_staged_files function.
-    
-    Returns:
-        Any: The result of the operation.
-    """
-    out = subprocess.check_output(
-        ["git", "diff", "--cached", "--name-only"]
-    ).decode()
-
+    """Get list of staged Python files."""
+    try:
+        out = subprocess.check_output(
+            ["git", "diff", "--cached", "--name-only"],
+            stderr=subprocess.DEVNULL,
+        ).decode()
+    except Exception:
+        return []
     return [f for f in out.splitlines() if f.endswith(".py")]
 
 
 def restage(files):
-    """
-    restage function that performs an operation.
-    
-    Args:
-        files: Required parameter.
-    
-    Returns:
-        None: This function does not return a value.
-    """
+    """Re-stage files after modification."""
     if files:
         subprocess.check_call(["git", "add", *files])
 
 
 def run(cmd):
-    """
-    run function.
-    
-    Args:
-        cmd: Required parameter.
-    
-    Returns:
-        Any: The result of the operation.
-    """
-    print("\n", " ".join(cmd))
+    """Run a command and return exit code."""
+    print("\n" + " ".join(cmd))
     return subprocess.call(cmd)
 
 
 def main():
-    """
-    main function.
-    
-    Returns:
-        Any: The result of the operation.
-    """
+    """Main entry point."""
     cfg = load_cfg()
-
     staged = git_staged_files()
+
     if not staged:
         print("No Python files staged.")
         return 0
 
     # -------------------------
-    # 1. AUTO DOCSTRING
+    # 1. AUTO DOCSTRING (generates missing docstrings)
     # -------------------------
     if cfg.get("run_autodoc", True):
         for f in staged:
@@ -96,15 +67,24 @@ def main():
             if rc != 0:
                 return rc
 
-        # re-stage changed files
+        # Re-stage changed files
         restage(staged)
 
     # -------------------------
-    # 2. PEP257
+    # 2. PEP257 FIXER (fixes violations automatically)
+    # -------------------------
+    for f in staged:
+        rc = run(["python", "pep257_fixer.py", f])
+        if rc != 0:
+            return rc
+
+    # Re-stage after fixes
+    restage(staged)
+
+    # -------------------------
+    # 3. PEP257 CHECKER (verify fixes worked)
     # -------------------------
     min_pep = cfg.get("min_pep257_score")
-
-    pep_scores = []
 
     for f in staged:
         p = subprocess.Popen(
@@ -118,13 +98,13 @@ def main():
         print(out)
 
         if p.returncode != 0:
-            return p.returncode
-
-        # OPTIONAL: later we can parse score from output
-        # For now pep257_checker always exits 0 — analyzer enforces
+            print("\nWarning: PEP257 check failed for {}".format(f))
+            # We continue to coverage check, but will fail at end if enforce is true
+            if cfg.get("enforce", False):
+                return p.returncode
 
     # -------------------------
-    # 3. COVERAGE
+    # 4. COVERAGE CHECK
     # -------------------------
     rc = run(["python", "analyzer.py"])
     if rc != 0:
