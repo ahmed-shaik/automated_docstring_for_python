@@ -53,3 +53,35 @@ enforce = true
 
 # Print verbose logs
 verbose = true
+
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+
+[project]
+name = "code-quality-tool"
+version = "0.1.0"
+description = "Automatic docstring generator, PEP257 fixer, and coverage analyzer"
+readme = "README.md"
+requires-python = ">=3.8"
+
+authors = [
+    { name = "Ahmed", email = "ahmed@example.com" }
+]
+
+dependencies = []
+
+
+# IMPORTANT for src layout
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+
+# CLI entry point
+[project.scripts]
+code-quality-tool = "code_quality_tool.cli:main"

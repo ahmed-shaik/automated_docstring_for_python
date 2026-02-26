@@ -1,0 +1,2 @@
+[console_scripts]
+code-quality-tool = code_quality_tool.cli:main
