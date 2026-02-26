@@ -6,3 +6,6 @@ repos:
         entry: python run_quality_gate.py
         language: system
         types: [python]
+        pass_filenames: false
+        always_run: true
+        exclude: ^(?:pep257_fixer\.py|pep257_checker\.py|auto_docstring_generator\.py|analyzer\.py|run_quality_gate\.py|pyproject\.toml)$
