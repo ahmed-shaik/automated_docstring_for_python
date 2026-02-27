@@ -2,10 +2,8 @@ repos:
   - repo: local
     hooks:
       - id: code-quality-gate
-        name: Auto docstring + PEP257 + Coverage
+        name: Code Quality Gate
         entry: code-quality-tool
         language: system
         types: [python]
         pass_filenames: false
-        always_run: true
-        require_serial: true
