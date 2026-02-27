@@ -1,203 +1,356 @@
-# Python Docstring Analyzer & Generator
+# Python Docstring Analyzer, Generator & Code Quality Tool
 
-A full-stack Python application that analyzes Python source code to extract structural details (modules, classes, functions, and methods), evaluates comment and docstring coverage, and generates baseline Google-style docstrings for undocumented functions.
+![Python](https://img.shields.io/badge/python-3.9+-blue)
+![FastAPI](https://img.shields.io/badge/FastAPI-backend-green)
+![Streamlit](https://img.shields.io/badge/Streamlit-frontend-red)
+![CLI](https://img.shields.io/badge/CLI-installable-orange)
 
-The project follows a clean **client–server architecture**, using **FastAPI** as the backend for code analysis and **Streamlit** as the frontend for visualization.
+A full-stack Python application and installable CLI tool that analyzes Python source code, evaluates docstring coverage, fixes PEP 257 violations, and generates baseline Google-style docstrings.
+
+This project includes:
+
+- Installable CLI Tool
+- FastAPI Backend API
+- Streamlit Frontend UI
+- Pre-commit integration
+- AST-based static code analysis
 
 ---
 
-## Features
+# Features
 
-- Upload Python (`.py`) files for analysis
+## CLI Tool Features
+
+- Auto-generate missing docstrings
+- Fix PEP 257 violations automatically
+- Check docstring compliance
+- Measure docstring coverage
+- Git pre-commit integration
+- Supports full projects
+- Handles edge cases safely
+
+---
+
+## Web Application Features
+
+- Upload Python (.py) files
 - Detect:
   - Modules
   - Classes
-  - Top-level functions
-  - Class methods
-- Comment analysis:
-  - Single-line comments (`#`)
-  - Multi-line comments (triple-quoted strings)
-- Docstring analysis:
-  - Identify missing and existing docstrings
-  - Compute docstring coverage percentage
-- Baseline docstring generation (Google-style)
-- Side-by-side visualization of code structure and documentation status
-- In-memory file processing (no files stored on disk)
-- REST API backend using FastAPI
-- Interactive frontend using Streamlit
+  - Functions
+  - Methods
+
+- Analyze:
+  - Comments
+  - Docstrings
+  - Coverage percentage
+
+- Generate baseline Google-style docstrings
+- Interactive visualization
+- No file storage (in-memory processing)
 
 ---
 
-## Project Architecture
+# Project Architecture
 
-python-docstring-generator/
-│
-├── backend/
-│ ├── main.py # FastAPI backend (API endpoints)
-│ ├── analyzer.py # AST-based analysis & docstring logic
-│
-├── frontend/
-│ ├── app.py # Streamlit frontend UI
-│
-├── requirements.txt
-└── README.md
+automated_docstring_for_python/
 
-### Architecture Overview
+backend/
+main.py
+analyzer.py
 
-- **Frontend (Streamlit)**  
-  Handles file upload, visualization, and user interaction.
+frontend/
+app.py
 
-- **Backend (FastAPI)**  
-  Exposes REST APIs to analyze Python source code.
+src/code_quality_tool/
+cli.py
+quality_gate.py
+analyzer.py
+pep257_checker.py
+pep257_fixer.py
+auto_docstring_generator.py
 
-- **Analyzer Module**  
-  Uses Python’s built-in `ast` module for static code analysis without executing the code.
+tests/
+
+pyproject.toml
+
+README.md
+
+requirements.txt
 
 ---
 
-## Technologies Used
+# Architecture Overview
 
-- Python 3.9+
+## CLI Workflow
+
+User → CLI Tool → Analyzer → Fixer → Coverage → Output
+
+---
+
+## Web Workflow
+
+Streamlit Frontend → FastAPI Backend → AST Analyzer → JSON Response → UI Display
+
+---
+
+# Technologies Used
+
+Backend:
+
+- Python
 - FastAPI
+- AST Module
+
+Frontend:
+
 - Streamlit
-- Uvicorn
-- Python AST (Abstract Syntax Tree)
-- Requests
+
+CLI:
+
+- setuptools
+- argparse
+
+DevOps:
+
+- pre-commit
 
 ---
 
-## Setup and Installation
+# Installation Guide
 
-### 1. Clone the repository
+## Step 1: Clone Repository
 
-```bash
-git https://github.com/ahmed-shaik/automated_docstring_for_python.git
-cd automated_docstring_for_python
-```
-
-### Architecture Overview
-
-- **Frontend (Streamlit)**  
-  Handles file upload, visualization, and user interaction.
-
-- **Backend (FastAPI)**  
-  Exposes REST APIs to analyze Python source code.
-
-- **Analyzer Module**  
-  Uses Python’s built-in `ast` module for static code analysis without executing the code.
-
----
-
-## Technologies Used
-
-- Python 3.9+
-- FastAPI
-- Streamlit
-- Uvicorn
-- Python AST (Abstract Syntax Tree)
-- Requests
-
----
-
-## Setup and Installation
-
-### 1. Clone the repository
-
-```bash
 git clone https://github.com/ahmed-shaik/automated_docstring_for_python.git
+
 cd automated_docstring_for_python
-2. Create and activate a virtual environment
-Windows
+
+---
+
+## Step 2: Create Virtual Environment
+
+Windows:
+
 python -m venv venv
+
 venv\Scripts\activate
 
-macOS / Linux
+Linux / macOS:
+
 python3 -m venv venv
+
 source venv/bin/activate
 
-3. Install dependencies
+---
+
+## Step 3: Install Dependencies
+
 pip install -r requirements.txt
 
-Running the Application
-Step 1: Start the FastAPI backend
+---
+
+## Step 4: Install CLI Tool
+
+pip install -e .
+
+---
+
+# CLI Usage
+
+Run:
+
+code-quality-tool
+
+Example Output:
+
+QUALITY GATE PASSED
+
+---
+
+# Pre-commit Integration
+
+Install:
+
+pip install pre-commit
+
+Activate:
+
+pre-commit install
+
+Now runs automatically on commit.
+
+---
+
+# Running Web Application
+
+## Start FastAPI Backend
+
 uvicorn backend.main:app --reload
 
-
-Backend will run at:
+Backend URL:
 
 http://localhost:8000
 
-
-API documentation (Swagger UI):
+API Docs:
 
 http://localhost:8000/docs
 
-Step 2: Start the Streamlit frontend
+---
 
-Open a new terminal (with the virtual environment activated):
+## Start Streamlit Frontend
+
+Open new terminal:
 
 streamlit run frontend/app.py
 
-
-Frontend will run at:
+Frontend URL:
 
 http://localhost:8501
 
-How It Works
+---
 
-The user uploads a Python .py file via the Streamlit UI.
+# Example
 
-The file is sent in memory to the FastAPI backend.
+Before:
 
-The backend parses the source code using Python AST.
+def add(a,b):
+return a+b
 
-Structural, comment, and docstring analysis is performed.
+After:
 
-Results are returned as structured JSON.
+def add(a,b):
+"""Auto-generated docstring."""
+return a+b
 
-Streamlit displays:
+---
 
-Code metrics
+# Coverage Example
 
-Comment analysis
+Docstring Coverage Report
 
-Docstring coverage
+File: example.py
 
-Baseline docstring suggestions
+Coverage: 100%
 
-Note: Uploaded files are never saved to disk.
+---
 
-Example Use Cases
+# API Example
 
-Improving documentation quality in Python projects
+POST request:
 
-Identifying undocumented functions and methods
+/analyze
 
-Learning Python AST and static code analysis
+Response:
 
-Code quality analysis for academic or industry projects
+Docstring coverage: 85%
 
-Future Enhancements
+---
 
-Download modified code with generated docstrings
+# Supported Edge Cases
 
-Support for NumPy and reStructuredText docstring styles
+- Empty Python files
+- Nested functions
+- Decorated functions
+- Classes without methods
+- Async functions
+- Already documented functions
+- Syntax errors
 
-Multi-file and folder-level analysis
+---
 
-Integration with GitHub repositories
+# Configuration
 
-AI-assisted docstring refinement
+Edit:
 
-Author
+pyproject.toml
+
+Example:
+
+[project]
+
+name = "code-quality-tool"
+
+version = "0.1.0"
+
+---
+
+# Development Setup
+
+Install editable version:
+
+pip install -e .
+
+---
+
+# Contribution Guidelines
+
+Clone repository
+
+Create branch
+
+Make changes
+
+Submit pull request
+
+---
+
+# Example Developer Workflow
+
+Write Python code
+
+git add .
+
+git commit -m "message"
+
+Tool runs automatically
+
+Fixes docstrings
+
+Commit succeeds
+
+---
+
+# Future Enhancements
+
+- Publish on PyPI
+- VSCode Extension
+- Folder-level analysis
+- GitHub integration
+- AI-generated docstrings
+
+---
+
+# Author
 
 Ahmed
+
 B.Tech – Computer Science and Machine Learning
-Final Year Project
-Infosys Springboard Program
 
-License
+Infosys Springboard Project
 
-This project is intended for academic and learning purposes.
-You are free to fork and modify it with proper attribution.
-```
+---
+
+# License
+
+MIT License
+
+---
+
+# Summary
+
+This project provides:
+
+- Installable Python CLI Tool
+- Full-Stack Web Application
+- Automatic Docstring Generation
+- PEP 257 Compliance
+- Coverage Analysis
+
+Suitable for:
+
+- Developers
+- Students
+- Code Quality Automation
+- Documentation Improvement
+
+---
